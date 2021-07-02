@@ -1,0 +1,230 @@
+---
+title: "MATH 5970 Assignment2"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Constributors
+
+- Jingyi Ni (5229807)
+- Xinyue Wang (5002735)
+- Yiwei Wang (5226946)
+- Tong Wang (5237902)
+
+
+This report is the programming part of MATH5970 Assignment2.
+
+### Question1
+Code a Gibbs sampler with `N = 10000` simulations and with a burnin of 1000 values;
+
+Firstly, we load the observation data and initialize hyperparameters of prior distributions.
+
+```{r, eval=TRUE}
+library(ggplot2)
+library(dplyr)
+y <- c(4, 5, 4, 1, 0, 4, 3, 4, 0, 6,
+3, 3, 4, 0, 2, 6, 3, 3, 5, 4, 5, 3, 1, 4, 4, 1, 5, 5, 3, 4, 2, 5, 2, 2, 3, 4, 2, 1, 3, 2,
+1, 1, 1, 1, 1, 3, 0, 0, 1, 0, 1, 1, 0, 0, 3, 1, 0, 3, 2, 2, 0, 1, 1, 1, 0, 1, 0, 1, 0, 0,
+0, 2, 1, 0, 0, 0, 1, 1, 0, 2, 2, 3, 1, 1, 2, 1, 1, 1, 1, 2, 4, 2, 0, 0, 0, 1, 4, 0, 0, 0,
+1, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0)
+n = length(y)
+burnin=1000
+alpha = 0.5
+a = 0.5
+beta =0.5
+b = 0.5
+Nsim = 10000
+```
+
+Then we get the cumulative summation of observation `y` for later use.
+
+```{r, eval=TRUE}
+sum_y = cumsum(y)
+```
+
+Initialize empty vectors for `\lambda, \phi and m` and sample the starting values:
+```{r, eval=TRUE}
+lambda = phi = m = rep(0, Nsim) #init arrays
+m[1] = 60
+lambda[1] = rgamma(1, shape = alpha + sum_y[m[1]], rate = m[1] + beta)
+phi[1] = rgamma(1, shape = a + sum_y[n] - sum_y[m[1]], rate = n - m[1] + b)
+
+```
+
+The full conditional distribution of $\lambda$ and $\phi$ are:
+
+$$
+\pi(\lambda|y) \propto e^{-(m+\beta)\lambda}\lambda^{\alpha +\sum_{i=1}^m y_i -1} \sim Gamma(\alpha +\sum_{i=1}^m y_i , m+\beta)
+$$
+
+$$
+\pi(\phi|y) \propto e^{-(n-m+b)\phi}\phi^{a +\sum_{i=m+1}^n y_i -1} \sim Gamma(a +\sum_{i=m+1}^n y_i , m+b)
+$$
+
+
+The distirbution of `m=k` follows:
+$$
+\pi(m=k|y)=\frac{e^{-(\lambda - \phi)k}\times (\frac{\lambda}{\phi})^{\sum_{i=1}^ky_i}}{\sum_{k=1}^n\bigg(e^{-(\lambda - \phi)k}\times(\frac{\lambda}{\phi})^{\sum_{i=1}^ky_i}\bigg)}
+$$
+
+
+Now we sample the starting value of `m`:
+```{r, eval=TRUE}
+zz = 0
+z = (1:(n - 1))
+for (k in 1:(n - 1)) {
+    z[k] = exp((phi[1] - lambda[1]) * k) * (lambda[1] / phi[1]) ^ (sum_y[k])
+    zz = zz + exp((phi[1] - lambda[1]) * k) * (lambda[1] / phi[1]) ^ (sum_y[k])
+}
+prob = z / zz
+m[1] = sample(n-1, 1, replace = TRUE, prob)
+
+```
+
+Gibbs sampler:
+```{r, eval=TRUE}
+for (i in 2:Nsim) {
+
+    lambda[i] = rgamma(1, shape = alpha + sum_y[m[i - 1]], rate = m[i - 1] + beta)
+    phi[i] = rgamma(1, shape = a + sum_y[n] - sum_y[m[i - 1]], rate = n - m[i - 1] + b)
+    zz = 0
+    z = (1:(n - 1))
+    for (k in 1:(n - 1)) {
+        z[k] = exp((phi[i] - lambda[i]) * k) * (lambda[i] / phi[i]) ^ (sum_y[k])
+        zz = zz + exp((phi[i] - lambda[i]) * k) * (lambda[i] / phi[i]) ^ (sum_y[k])
+        
+    }
+    prob = z / zz
+    m[i] = sample(n-1, 1, replace = TRUE, prob)
+}
+
+```
+
+
+### Question2 
+Plot the simulates marginal chain for each parameter and comment;
+
+We ignore the first 1000 simulation since they are in burn-in period
+```{r, eval=TRUE, fig1, fig.width = 10, fig.height=5}
+par(mfrow=c(1,3))
+hist(phi[(burnin + 1):Nsim], prob = T, xlab = 'phi', main = 'Histogram of Simulated Phi')
+hist(lambda[(burnin + 1):Nsim], prob = T, xlab = 'lambda', main = 'Histogram of Simulated Lambda')
+hist(m[(burnin + 1):Nsim], prob = T, xlab = 'm', main = 'Histogram of Simulated m')
+
+```
+As we can see from the histogram plot, the mean of simulated $\lambda$ is close to 0.9, the mean of simulated $\phi$ is close to 3.2 and the mean of simulated $m$ is close to 40.
+
+### Question3
+Analyse the convergence of the chains with at least two tools
+
+Method1: acf to observe the convergence
+```{r, eval=TRUE, fig2, fig.width = 10, fig.height=5}
+par(mfrow=c(1,3))
+acf(phi)
+acf(lambda)
+acf(m)
+```
+We can tell from autocorrelation plot that all three variables converged since the autocorrelation is low as number of simulation increases and drops to close to zero quickly.
+
+Method2: multiple chain method
+
+Now we make a function of Gibbs sampler that takes hyperparaemters as arguments.
+```{r, eval=TRUE}
+
+gibbs_sampler <- function(alpha, beta, a, b) {
+    lambda = phi = m = rep(0, Nsim) #init arrays
+    m[1] = 60
+    lambda[1] = rgamma(1, shape = alpha + sum_y[m[1]], rate = m[1] + beta)
+    phi[1] = rgamma(1, shape = a + sum_y[n] - sum_y[m[1]], rate = n - m[1] + b)
+    zz = 0
+    z = (1:(n - 1))
+    for (k in 1:(n - 1)) {
+        z[k] = exp((phi[1] - lambda[1]) * k) * (lambda[1] / phi[1]) ^ (sum_y[k])
+        zz = zz + exp((phi[1] - lambda[1]) * k) * (lambda[1] / phi[1]) ^ (sum_y[k])
+    }
+    prob = z / zz
+    m[1] = sample(n-1, 1, replace = TRUE, prob)
+
+    for (i in 2:Nsim) {
+        lambda[i] = rgamma(1, shape = alpha + sum_y[m[i - 1]], rate = m[i - 1] + beta)
+        phi[i] = rgamma(1, shape = a + sum_y[n] - sum_y[m[i - 1]], rate = n - m[i - 1] + b)
+        zz = 0
+        z = (1:(n - 1))
+        for (k in 1:(n - 1)) {
+            z[k] = exp((phi[i] - lambda[i]) * k) * (lambda[i] / phi[i]) ^ (sum_y[k])
+            zz = zz + exp((phi[i] - lambda[i]) * k) * (lambda[i] / phi[i]) ^ (sum_y[k])
+            
+        }
+        prob = z / zz
+        m[i] = sample(n-1, 1, replace = TRUE, prob)
+    }
+    return(list(lambda=lambda, phi=phi, m=m))
+}
+```
+
+Now we experiment 3 gibbs sampling with different hyperparameters
+```{r, eval=TRUE}
+samples1 = gibbs_sampler(alpha=1, beta=1, a=2, b=2)
+samples2 = gibbs_sampler(alpha=1, beta=2, a=10, b=20)
+samples3 = gibbs_sampler(alpha=1, beta=3, a=8, b=5)
+```
+
+```{r, eval=TRUE}
+# combine results of lambda
+lambdas = cbind(samples1$lambda, samples2$lambda, samples3$lambda)
+df_lambda = as.data.frame(lambdas)
+colnames(df_lambda) = c('lambda1', 'lambda2', 'lambda3')
+df_lambda$x = seq.int(nrow(df_lambda))
+
+# combine results of phi
+phis = cbind(samples1$phi, samples2$phi, samples3$phi)
+df_phi = as.data.frame(phis)
+colnames(df_phi) = c('phi1', 'phi2', 'phi3')
+df_phi$x = seq.int(nrow(df_phi))
+
+# combine results of m
+ms = cbind(samples1$m, samples2$m, samples3$m)
+df_m = as.data.frame(ms)
+colnames(df_m) = c('m1', 'm2', 'm3')
+df_m$x = seq.int(nrow(df_m))
+
+# we only take raws after burinin peiord
+df_lambda = slice(df_lambda, burnin+1: Nsim)  
+df_phi = slice(df_phi, burnin+1:Nsim)
+df_m = slice(df_m, burnin+1:Nsim)
+```
+
+```{r, eval=TRUE}
+# transparency parameter
+alpha = 0.4
+
+ggplot(df_lambda, aes(x=x)) +
+    geom_line(aes(y=lambda1, color='lambda1'), alpha=alpha) + 
+    geom_line(aes(y=lambda2, color='lambda2'), alpha=alpha) + 
+    geom_line(aes(y=lambda3, color='lambda3'), alpha=alpha) + 
+    ggtitle('Multi-chain simulation of lambda') +
+    xlab('burnin to N-sim') +
+    ylab('simulated lambda')
+
+ggplot(df_phi, aes(x=x)) +
+    geom_line(aes(y=phi1, color='phi1'), alpha=alpha) + 
+    geom_line(aes(y=phi2, color='phi2'), alpha=alpha) + 
+    geom_line(aes(y=phi3, color='phi3'), alpha=alpha) + 
+    ggtitle('Multi-chain simulation of phi') +
+    xlab('burnin to N-sim') +
+    ylab('simulated phi')
+
+ggplot(df_m, aes(x=x)) +
+    geom_line(aes(y=m1, color='m1'), alpha=alpha) + 
+    geom_line(aes(y=m2, color='m2'), alpha=alpha) + 
+    geom_line(aes(y=m3, color='m3'), alpha=alpha) + 
+    ggtitle('Multi-chain simulation of m') +
+    xlab('burnin to N-sim') +
+    ylab('simulated m')
+
+```
+
+As we can see from the simulation plots, regardless of hyperparameter values, the simulation always converges to the same value.
